@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {groupClips,ingest,acquireLock,waitForRefreshRequest} from '../tools/watch-clips.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+const clip=(id,start,extra={})=>({id,created_at:'2026-11-15T10:00:00Z',broadcaster_id:'b',creator_id:id,video_id:'v',vod_offset:start,duration:30,view_count:0,...extra});
+test('overlapping copies become one candidate',()=>assert.equal(groupClips([clip('a',10),clip('b',15),clip('c',8)]).length,1));
+test('adjacent events and different sources stay separate',()=>assert.equal(groupClips([clip('a',10),clip('b',60),clip('c',10,{video_id:'v2'})]).length,3));
+test('null offsets never merge by creation timestamp',()=>assert.equal(groupClips([clip('a',null),clip('b',null)]).length,2));
+test('overlap chain cannot swallow separate events',()=>assert.equal(groupClips([clip('a',0),clip('b',10),clip('c',20)]).length,2));
+test('zero offset is valid',()=>assert.equal(groupClips([clip('a',0),clip('b',1)]).length,1));
+test('restart keeps identity and original first seen time',()=>{const s={clips:{}};assert.equal(ingest(s,[clip('a',null)],'first'),1);const restored=JSON.parse(JSON.stringify(s));assert.equal(ingest(restored,[clip('a',10)],'later'),0);assert.equal(restored.clips.a.first_seen_at,'first');assert.equal(restored.clips.a.vod_offset,10);});
+test('baseline and live discovery stay distinct across refresh',()=>{const s={clips:{}};ingest(s,[clip('a',0)],'first');s.baseline_complete=true;ingest(s,[clip('a',0),clip('b',60)],'second');assert.equal(s.clips.a.discovery,'baseline');assert.equal(s.clips.b.discovery,'live');});
+test('late indexing of an old clip is backfill, not a newly created clip',()=>{const s={clips:{},baseline_complete:true,observation_started_at:'2026-11-15T11:00:00Z'};ingest(s,[clip('old',0)],'2026-11-15T11:02:00Z');assert.equal(s.clips.old.discovery,'backfill');});
+test('exclusive observer lock prevents concurrent writers',()=>{const parent=path.resolve('output/tests');fs.mkdirSync(parent,{recursive:true});const dir=fs.mkdtempSync(path.join(parent,'lock-'));const release=acquireLock(dir);try{assert.throws(()=>acquireLock(dir),/already running/);}finally{release();fs.rmdirSync(dir);}});
+test('a manual refresh request wakes the observer before its regular interval',async()=>{const parent=path.resolve('output/tests');fs.mkdirSync(parent,{recursive:true});const dir=fs.mkdtempSync(path.join(parent,'refresh-'));try{fs.writeFileSync(path.join(dir,'refresh-request.json'),JSON.stringify({id:'request-1'}));assert.equal(await waitForRefreshRequest(dir,15000,'previous'), 'request-1');}finally{fs.rmSync(dir,{recursive:true});}});

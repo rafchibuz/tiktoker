@@ -1,0 +1,25 @@
+[Unit]
+Description=Tiktoker clip studio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tiktoker
+Group=tiktoker
+WorkingDirectory=/srv/tiktoker
+Environment=NODE_ENV=production
+Environment=PORT=4317
+Environment=PUBLIC_ORIGIN=https://tiktok.ravshan.tv
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/node /srv/tiktoker/src/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/tiktoker/output
+
+[Install]
+WantedBy=multi-user.target
