@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {downloadClip,createPreview} from './media-tools.mjs';
 import {fingerprint,compareFingerprints} from './fingerprint.mjs';
+import {manualClips} from './manual-clips.mjs';
 
 const now=()=>new Date().toISOString();
 const read=(file,fallback)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}};
@@ -15,7 +16,7 @@ export class MediaQueue {
     this.busy=false;this.stopped=true;
   }
   save(){write(this.file,this.state);}
-  source(channel,id){return read(path.join(this.root,'clip-watch',channel,'state.json'),{clips:{}}).clips[id];}
+  source(channel,id){return manualClips(this.root,channel)[id]??read(path.join(this.root,'clip-watch',channel,'state.json'),{clips:{}}).clips[id];}
   enqueue(channel,id){
     if(!/^[a-z0-9_]{1,25}$/.test(channel)||typeof id!=='string'||!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw Error('Некорректный канал или клип');
     const clip=this.source(channel,id);if(!clip)throw Error('Клип не найден');
@@ -33,7 +34,7 @@ export class MediaQueue {
     for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
       if(!entry.isDirectory()||!/^[a-z0-9_]{1,25}$/.test(entry.name))continue;
       const state=read(path.join(dir,entry.name,'state.json'),{clips:{}});
-      for(const clip of Object.values(state.clips)){
+      for(const clip of Object.values({...state.clips,...manualClips(this.root,entry.name)})){
         const review=reviews[`${entry.name}:${clip.id}`]?.status;
         if(review==='rejected')continue;
         if(review==='shortlisted')this.enqueue(entry.name,clip.id);

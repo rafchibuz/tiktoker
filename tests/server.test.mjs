@@ -17,7 +17,9 @@ test('local panel reads real state, persists reviews and refuses unsafe requests
  const dataRoot=fs.mkdtempSync(path.join(parent,'panel-'));
  const dir=path.join(dataRoot,'clip-watch','shadowkekw');fs.mkdirSync(dir,{recursive:true});
  fs.writeFileSync(path.join(dir,'state.json'),JSON.stringify({channel:'shadowkekw',clips:{one:{id:'one',created_at:'2026-11-15T11:00:00Z',broadcaster_id:'1',creator_id:'2',video_id:'',vod_offset:null,duration:30,discovery:'live'}}}));
- let app=createApp({dataRoot,allowSpawn:false});app.server.listen(0,'127.0.0.1');await once(app.server,'listening');
+ const importedId='RelievedRichPoxAliens-0ehiJ-1Nhsa5QCYg';
+ const twitchApi=async(endpoint,params)=>endpoint==='users'?{data:[{login:'otherchannel',id:'3'}]}:endpoint==='clips'?{data:[{id:importedId,broadcaster_login:'otherchannel',broadcaster_id:'3',creator_id:'4',creator_name:'viewer',title:'Клип после эфира',created_at:'2026-11-15T12:00:00Z',duration:30,video_id:'1234',vod_offset:90,view_count:25,thumbnail_url:'https://static-cdn.jtvnw.net/a.jpg'}]}:{data:[]};
+ let app=createApp({dataRoot,allowSpawn:false,twitchApi});app.server.listen(0,'127.0.0.1');await once(app.server,'listening');
  let base=`http://127.0.0.1:${app.server.address().port}`;
  const post=(url,data,headers={})=>fetch(base+url,{method:'POST',headers:{'Content-Type':'application/json','X-Tiktoker-Request':'1',...headers},body:JSON.stringify(data)});
  try {
@@ -40,7 +42,6 @@ test('local panel reads real state, persists reviews and refuses unsafe requests
   assert.equal((await post('/api/prepare',{channel:'../',id:'one'})).status,400);
   assert.equal((await post('/api/pipeline/settings',{auto_prepare:false})).status,200);
   assert.equal((await post('/api/clips/refresh',{channel:'shadowkekw'})).status,403);
-  assert.equal((await post('/api/clips/import',{channel:'shadowkekw',url:'https://clips.twitch.tv/RelievedRichPoxAliens-0ehiJ-1Nhsa5QCYg'})).status,409);
   const job=app.mediaQueue.state.jobs[prepared.job.id];job.status='ready';job.media={preview:true,duration:10,width:1920,height:1080,sha256:'fixture-source'};
   const subtitleDir=path.join(dataRoot,'subtitles',job.id);fs.mkdirSync(subtitleDir,{recursive:true});fs.writeFileSync(path.join(subtitleDir,'transcript.json'),JSON.stringify({source_sha256:'fixture-source',revision:0,words:[{text:'ошибка',start:1,end:2}]}));
   const generated=await(await post('/api/subtitles/generate',{job_id:job.id})).json();assert.equal(generated.transcript.words[0].text,'ошибка');
@@ -63,10 +64,15 @@ test('local panel reads real state, persists reviews and refuses unsafe requests
   assert.equal((await fetch(base+'/api/render-media/'+queued.render.id)).status,404);
   const response=await(await fetch(base+'/api/clips?channel=shadowkekw')).json();assert.equal(response.groups[0].clips[0].review.status,'shortlisted');
   assert.equal((await post('/api/observe',{channel:'shadowkekw',action:'start'})).status,403);
+  const added=await(await post('/api/channels/add',{channel:'https://www.twitch.tv/otherchannel'})).json();assert.equal(added.channel,'otherchannel');
+  assert.equal((await post('/api/clips/import',{url:'https://evil.example/clip/'+importedId})).status,400);
+  const imported=await(await post('/api/clips/import',{url:`https://clips.twitch.tv/${importedId}`,approve:true})).json();assert.equal(imported.channel,'otherchannel');assert.equal(imported.review,'shortlisted');assert.ok(imported.job_id);
+  const manual=await(await fetch(base+'/api/clips?channel=otherchannel')).json();assert.equal(manual.groups[0].clips[0].discovery,'manual');assert.equal(manual.groups[0].clips[0].review.status,'shortlisted');
   app.shutdown();await once(app.server,'close');
-  app=createApp({dataRoot,allowSpawn:false});app.server.listen(0,'127.0.0.1');await once(app.server,'listening');base=`http://127.0.0.1:${app.server.address().port}`;
+  app=createApp({dataRoot,allowSpawn:false,twitchApi});app.server.listen(0,'127.0.0.1');await once(app.server,'listening');base=`http://127.0.0.1:${app.server.address().port}`;
   const afterRestart=await(await fetch(base+'/api/clips?channel=shadowkekw')).json();assert.equal(afterRestart.groups[0].clips[0].review.status,'shortlisted');
-  const queueAfterRestart=await(await fetch(base+'/api/pipeline')).json();assert.equal(queueAfterRestart.settings.auto_prepare,false);assert.equal(queueAfterRestart.jobs.length,1);
+  const queueAfterRestart=await(await fetch(base+'/api/pipeline')).json();assert.equal(queueAfterRestart.settings.auto_prepare,false);assert.equal(queueAfterRestart.jobs.length,2);
+  assert.equal(app.mediaQueue.source('otherchannel',importedId).title,'Клип после эфира');
   const renderAfterRestart=await(await fetch(base+'/api/render-queue')).json();assert.equal(renderAfterRestart.renders.length,1);
  } finally {app.shutdown();await once(app.server,'close');if(dataRoot.startsWith(parent+path.sep))fs.rmSync(dataRoot,{recursive:true});}
 });

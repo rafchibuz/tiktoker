@@ -9,6 +9,7 @@ import {groupClips} from '../tools/watch-clips.mjs';
 import {MediaQueue} from './media-queue.mjs';
 import {RenderQueue} from './render-queue.mjs';
 import {analyzeStream,createTwitchClient,parseStreamLink} from './stream-analysis.mjs';
+import {addChannel,importClip,manualClips,parseClipLink,registeredChannels} from './manual-clips.mjs';
 import {TikTokPublisher} from './tiktok.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -28,14 +29,15 @@ export function clipIdFromLink(value,channel){
 function readJson(file,fallback) {try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
 function writeJson(file,data) {fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file+'.tmp',JSON.stringify(data,null,2));fs.renameSync(file+'.tmp',file);}
 
-export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,publicOrigin=process.env.PUBLIC_ORIGIN}={}) {
+export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,publicOrigin=process.env.PUBLIC_ORIGIN,twitchApi=null}={}) {
   const children=new Map();
   const statuses=new Map();
   const refreshes=new Map();
   const reviewFile=path.join(dataRoot,'reviews.json');
   const reviews=()=>readJson(reviewFile,{});
   const channelDir=channel=>path.join(dataRoot,'clip-watch',channel);
-  const stateFor=channel=>readJson(path.join(channelDir(channel),'state.json'),{channel,clips:{}});
+  const stateFor=channel=>{const state=readJson(path.join(channelDir(channel),'state.json'),{channel,clips:{}});return {...state,clips:{...state.clips,...manualClips(dataRoot,channel)}};};
+  const twitch=()=>twitchApi??createTwitchClient(dataRoot);
   const mediaQueue=new MediaQueue(dataRoot);
   const renderQueue=new RenderQueue(dataRoot,mediaQueue);
   const tiktoks={production:new TikTokPublisher(dataRoot,renderQueue,{origin:publicOrigin}),sandbox:new TikTokPublisher(dataRoot,renderQueue,{origin:publicOrigin,environment:'sandbox'})};
@@ -49,7 +51,7 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
   function channels() {
     const dir=path.join(dataRoot,'clip-watch');
     const found=fs.existsSync(dir)?fs.readdirSync(dir,{withFileTypes:true}).filter(x=>x.isDirectory()&&validChannel(x.name)).map(x=>x.name):[];
-    return [...new Set(['ravshann','leva2k','shadowkekw',...found])].map(channel=>{
+    return [...new Set(['ravshann','leva2k','shadowkekw',...registeredChannels(dataRoot),...found])].map(channel=>{
       const s=stateFor(channel),clips=Object.values(s.clips);
       return {channel,running:running(channel),live:!!s.stream,last_poll_at:s.last_poll_at??null,last_error:s.last_error??null,
         process:statuses.get(channel)??null,total:clips.length,new_count:clips.filter(c=>c.discovery==='live').length,
@@ -101,10 +103,13 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
         res.writeHead(status,{'Content-Type':'video/mp4','Accept-Ranges':'bytes','Content-Length':end-start+1,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(status===206?{'Content-Range':`bytes ${start}-${end}/${size}`}:{})});if(req.method==='HEAD')return res.end();const stream=fs.createReadStream(file,{start,end});stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());return stream.pipe(res);
       }
       if(req.method==='GET' && url.pathname==='/api/channels')return send(200,{channels:channels()});
+      if(req.method==='POST' && url.pathname==='/api/channels/add'){
+        try{const data=await body(req),channel=await addChannel(dataRoot,data.channel,twitch());return send(200,{channel});}catch(e){return send(400,{error:e.message});}
+      }
       if(req.method==='POST' && url.pathname==='/api/stream/analyze'){
         const data=await body(req);
         if(!parseStreamLink(data.url))return send(400,{error:'Вставь ссылку на Twitch VOD или канал'});
-        try{return send(200,await analyzeStream(data.url,{api:createTwitchClient(dataRoot)}));}
+        try{return send(200,await analyzeStream(data.url,{api:twitch()}));}
         catch(e){return send(502,{error:e.message});}
       }
       if(req.method==='POST' && url.pathname==='/api/clips/refresh'){
@@ -128,27 +133,11 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
         try{return send(200,await task);}catch(e){return send(503,{error:e.message});}
       }
       if(req.method==='POST' && url.pathname==='/api/clips/import'){
-        const data=await body(req),channel=data.channel,id=clipIdFromLink(data.url,channel);
-        if(!validChannel(channel)||!id)return send(400,{error:'Вставь ссылку на клип выбранного канала Twitch'});
-        if(!allowSpawn||!running(channel))return send(409,{error:'Сначала включи наблюдение за каналом'});
-        if(refreshes.has(channel))return send(409,{error:'Опрос уже идёт. Повтори через несколько секунд.'});
-        const task=(async()=>{
-          const requestId=randomUUID(),requestedAt=Date.now();
-          writeJson(path.join(channelDir(channel),'refresh-request.json'),{id:requestId,clip_id:id,at:new Date(requestedAt).toISOString()});
-          while(Date.now()-requestedAt<30000){
-            const current=stateFor(channel);
-            if(current.last_refresh_request_id===requestId){
-              const clip=current.clips[id];
-              if(!clip)throw Error('Twitch пока не вернул этот клип. Попробуй ещё раз через минуту.');
-              return {ok:true,id:clip.id,title:clip.title,created_at:clip.created_at,discovery:clip.discovery};
-            }
-            if(current.last_error&&Date.parse(current.last_error.at)>=requestedAt)throw Error(`Twitch не ответил: ${current.last_error.message}`);
-            if(!running(channel))throw Error('Наблюдение остановилось до завершения запроса');
-            await delay(250);
-          }
-          throw Error('Запрос клипа не завершился за 30 секунд. Попробуй ещё раз.');
-        })().finally(()=>refreshes.delete(channel));refreshes.set(channel,task);
-        try{return send(200,await task);}catch(e){return send(503,{error:e.message});}
+        const data=await body(req);if(!parseClipLink(data.url)||data.approve!==undefined&&typeof data.approve!=='boolean')return send(400,{error:'Вставь ссылку на Twitch-клип'});
+        try{const {channel,clip}=await importClip(dataRoot,data.url,twitch());let job=null;
+          if(data.approve){const all=reviews();all[`${channel}:${clip.id}`]={status:'shortlisted',updated_at:new Date().toISOString()};writeJson(reviewFile,all);job=mediaQueue.enqueue(channel,clip.id);}
+          return send(200,{ok:true,channel,id:clip.id,title:clip.title,created_at:clip.created_at,discovery:'manual',review:reviews()[`${channel}:${clip.id}`]?.status??'pending',job_id:job?.id??null});
+        }catch(e){return send(502,{error:e.message});}
       }
       if(req.method==='GET' && url.pathname==='/api/pipeline')return send(200,mediaQueue.snapshot());
       if(req.method==='GET' && url.pathname==='/api/render-queue')return send(200,renderQueue.snapshot());
