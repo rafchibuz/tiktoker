@@ -8,7 +8,7 @@ import {parseClipLink,parseChannel,importClip,manualClips,registeredChannels} fr
 test('offline Twitch clip links import independently of the selected observer and persist',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tiktoker-manual-'));
  const id='RelievedRichPoxAliens-0ehiJ-1Nhsa5QCYg';
- const api=async endpoint=>({data:endpoint==='clips'?[{id,broadcaster_login:'ravshann',broadcaster_id:'1',creator_id:'2',created_at:'2026-11-15T12:00:00Z',duration:30,title:'Тест'}]:[]});
+ const api=async endpoint=>({data:endpoint==='clips'?[{id,broadcaster_id:'1',creator_id:'2',created_at:'2026-11-15T12:00:00Z',duration:30,title:'Тест'}]:endpoint==='users'?[{id:'1',login:'ravshann'}]:[]});
  try{
   assert.deepEqual(parseClipLink(`https://www.twitch.tv/ravshann/clip/${id}?filter=clips`),{id,channel:'ravshann'});
   assert.equal(parseClipLink(`https://evil.example/ravshann/clip/${id}`),null);

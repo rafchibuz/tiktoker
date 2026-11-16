@@ -24,7 +24,7 @@ export function manualClips(root,channel){if(!validChannel(channel))return {};re
 export async function importClip(root,value,api){
  const parsed=parseClipLink(value);if(!parsed)throw Error('Вставь ссылку на Twitch-клип');
  const clip=(await api('clips',{id:parsed.id})).data?.[0];if(!clip||clip.id!==parsed.id)throw Error('Twitch пока не вернул этот клип. Проверь ссылку или повтори позже.');
- const channel=String(clip.broadcaster_login??'').toLowerCase();if(!validChannel(channel)||parsed.channel&&parsed.channel!==channel)throw Error('Канал в ссылке не совпадает с клипом Twitch');
+ const user=(await api('users',{id:clip.broadcaster_id})).data?.[0],channel=String(user?.login??'').toLowerCase();if(!validChannel(channel)||parsed.channel&&parsed.channel!==channel)throw Error('Канал в ссылке не совпадает с клипом Twitch');
  if(!clip.created_at||!Number.isFinite(Number(clip.duration))||Number(clip.duration)<=0)throw Error('Twitch вернул неполные данные клипа');
  const file=path.join(root,'clip-watch',channel,'manual.json'),saved=read(file,{clips:{}}),old=saved.clips?.[clip.id];
  saved.clips??={};saved.clips[clip.id]={...clip,first_seen_at:old?.first_seen_at??new Date().toISOString(),last_seen_at:new Date().toISOString(),discovery:'manual'};write(file,saved);rememberChannel(root,channel);
