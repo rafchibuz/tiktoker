@@ -23,6 +23,17 @@ test('TikTok Direct Post uses OAuth state, approved render and signed PULL_FROM_
   const media=new URL(payload.source_info.video_url),[, , ,renderId,expiry,sig]=media.pathname.split('/');assert.equal(t.mediaFile(renderId,expiry,sig),path.join(folder,'video.mp4'));assert.equal(t.mediaFile(renderId,expiry,'0'.repeat(64)),null);
   await assert.rejects(t.publish({render_id:id,privacy_level:'PUBLIC_TO_EVERYONE'}),/уже отправлена/);
   assert.equal((await t.refreshStatus(id)).status,'PUBLISH_COMPLETE');
+  const sandbox=new TikTokPublisher(root,queue,{origin:'https://tiktok.ravshan.tv',fetcher,environment:'sandbox'});
+  assert.equal(sandbox.status().configured,false);assert.equal(sandbox.status().connected,false);
+  sandbox.configure({client_key:'sandboxkey123',client_secret:'sandboxsecret123'});
+  assert.equal(t.config.client_key,'clientkey123');
+  const sandboxState=new URL(sandbox.authorize()).searchParams.get('state');assert.match(sandboxState,/^sandbox_/);
+  await sandbox.exchange('sandbox-code',sandboxState);
+  assert.equal(sandbox.status().connected,true);
+  await assert.rejects(sandbox.publish({render_id:id,privacy_level:'PUBLIC_TO_EVERYONE'}),/только приватную/);
+  const sandboxPost=await sandbox.publish({render_id:id,privacy_level:'SELF_ONLY'});assert.equal(sandboxPost.publish_id,'pub123');
+  assert.equal(sandbox.publications()[id].post_info.privacy_level,'SELF_ONLY');
+  assert.equal(t.publications()[id].post_info.privacy_level,'PUBLIC_TO_EVERYONE');
   queue.state.approvals.job=null;assert.equal(t.mediaFile(renderId,expiry,sig),null);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

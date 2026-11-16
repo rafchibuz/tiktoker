@@ -11,6 +11,17 @@
 
 ## Настройка в TikTok Developer Portal
 
+### Sandbox для первого теста
+
+1. В приложении Tiktoker переключиться на **Sandbox**, создать Sandbox (можно клонировать Production Draft). Включить Login Kit для Web и Content Posting API → Direct Post, затем нажать **Apply changes**.
+2. В Sandbox settings → Target users добавить собственный TikTok-аккаунт и пройти вход. TikTok предупреждает, что появление аккаунта в списке может занять до часа.
+3. Добавить тот же Web Redirect URI `https://tiktok.ravshan.tv/tiktok/callback`. Для Content Posting API подтвердить `tiktok.ravshan.tv` в URL properties Sandbox.
+4. В студии выбрать **Sandbox**, ввести именно его Client Key/Secret, подключить добавленный аккаунт и испытать Direct Post. Sandbox ограничен приватной видимостью `SELF_ONLY`.
+
+Ключи, токены и история публикаций Sandbox хранятся отдельно от Production. Публичная публикация в Sandbox недоступна. См. [Add a Sandbox](https://developers.tiktok.com/docs/en/add-a-sandbox).
+
+### Production для аудита
+
 1. Выбрать платформу **Web**. В Login Kit включить **Configure for Web** и добавить точный Redirect URI: `https://tiktok.ravshan.tv/tiktok/callback`.
 2. В Content Posting API оставить включённым **Direct Post** и scope `video.publish`. `video.upload` можно исключить из заявки, если черновики не используются.
 3. В **URL properties / Verify domains** подтвердить `tiktok.ravshan.tv` для `PULL_FROM_URL`. Способ подтверждения укажет портал. Если нужен файл или DNS TXT, выполнить именно выданное им действие.

@@ -38,7 +38,8 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
   const stateFor=channel=>readJson(path.join(channelDir(channel),'state.json'),{channel,clips:{}});
   const mediaQueue=new MediaQueue(dataRoot);
   const renderQueue=new RenderQueue(dataRoot,mediaQueue);
-  const tiktok=new TikTokPublisher(dataRoot,renderQueue,{origin:publicOrigin});
+  const tiktoks={production:new TikTokPublisher(dataRoot,renderQueue,{origin:publicOrigin}),sandbox:new TikTokPublisher(dataRoot,renderQueue,{origin:publicOrigin,environment:'sandbox'})};
+  const tiktokFor=environment=>{if(!['production','sandbox'].includes(environment))throw Error('Выбери Production или Sandbox');return tiktoks[environment];};
   function running(channel) {
     if(children.has(channel)) return true;
     const lock=readJson(path.join(channelDir(channel),'observer.lock'),null);
@@ -71,28 +72,30 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
       if(origin && origin!==`http://${host}` && origin!==publicOrigin)return send(403,{error:'Cross-origin request refused'});
       const url=new URL(req.url,`http://${host}`);
       if(req.method==='POST' && (req.headers['x-tiktoker-request']!=='1' || !String(req.headers['content-type']).startsWith('application/json')))return send(403,{error:'Local application request required'});
-      if(req.method==='GET' && url.pathname==='/api/tiktok/status')return send(200,{...tiktok.status(),publications:tiktok.publications()});
+      if(req.method==='GET' && url.pathname==='/api/tiktok/status'){
+        try{const tiktok=tiktokFor(url.searchParams.get('environment')??'production');return send(200,{...tiktok.status(),publications:tiktok.publications()});}catch(e){return send(400,{error:e.message});}
+      }
       if(req.method==='POST' && url.pathname==='/api/tiktok/config'){
-        try{return send(200,tiktok.configure(await body(req)));}catch(e){return send(400,{error:e.message});}
+        try{const data=await body(req);return send(200,tiktokFor(data.environment??'production').configure(data));}catch(e){return send(400,{error:e.message});}
       }
       if(req.method==='GET' && url.pathname==='/tiktok/connect'){
-        try{res.writeHead(302,{Location:tiktok.authorize(),'Cache-Control':'no-store'});return res.end();}catch(e){return send(400,{error:e.message});}
+        try{res.writeHead(302,{Location:tiktokFor(url.searchParams.get('environment')??'production').authorize(),'Cache-Control':'no-store'});return res.end();}catch(e){return send(400,{error:e.message});}
       }
       if(req.method==='GET' && url.pathname==='/tiktok/callback'){
-        try{if(url.searchParams.has('error'))throw Error('Авторизация TikTok отклонена');await tiktok.exchange(url.searchParams.get('code'),url.searchParams.get('state'));res.writeHead(302,{Location:'/montage?tiktok=connected','Cache-Control':'no-store'});return res.end();}
+        try{if(url.searchParams.has('error'))throw Error('Авторизация TikTok отклонена');const state=url.searchParams.get('state')??'',environment=state.startsWith('sandbox_')?'sandbox':'production';await tiktoks[environment].exchange(url.searchParams.get('code'),state);res.writeHead(302,{Location:`/montage?tiktok=${environment}-connected`,'Cache-Control':'no-store'});return res.end();}
         catch(e){return send(400,`Ошибка TikTok: ${e.message}`,'text/plain; charset=utf-8');}
       }
       if(req.method==='GET' && url.pathname==='/api/tiktok/creator'){
-        try{return send(200,{creator:await tiktok.creator()});}catch(e){return send(502,{error:e.message});}
+        try{return send(200,{creator:await tiktokFor(url.searchParams.get('environment')??'production').creator()});}catch(e){return send(502,{error:e.message});}
       }
       if(req.method==='POST' && url.pathname==='/api/tiktok/publish'){
-        try{return send(200,{publication:await tiktok.publish(await body(req))});}catch(e){return send(400,{error:e.message});}
+        try{const data=await body(req);return send(200,{publication:await tiktokFor(data.environment??'production').publish(data)});}catch(e){return send(400,{error:e.message});}
       }
       if(req.method==='POST' && url.pathname==='/api/tiktok/publication/refresh'){
-        try{return send(200,{publication:await tiktok.refreshStatus((await body(req)).render_id)});}catch(e){return send(400,{error:e.message});}
+        try{const data=await body(req);return send(200,{publication:await tiktokFor(data.environment??'production').refreshStatus(data.render_id)});}catch(e){return send(400,{error:e.message});}
       }
       if(['GET','HEAD'].includes(req.method) && /^\/tiktok\/media\/[a-f0-9]{24}\/\d{10,13}\/[a-f0-9]{64}$/.test(url.pathname)){
-        const [, , ,id,expires,signature]=url.pathname.split('/');const file=tiktok.mediaFile(id,expires,signature);if(!file)return send(404,{error:'Video unavailable'});
+        const [, , ,id,expires,signature]=url.pathname.split('/');const file=tiktoks.production.mediaFile(id,expires,signature)??tiktoks.sandbox.mediaFile(id,expires,signature);if(!file)return send(404,{error:'Video unavailable'});
         const size=fs.statSync(file).size;let start=0,end=size-1,status=200;
         if(req.headers.range){const match=/^bytes=(\d*)-(\d*)$/.exec(req.headers.range);if(!match||!match[1]&&!match[2]){res.writeHead(416,{'Content-Range':`bytes */${size}`});return res.end();}if(!match[1])start=Math.max(0,size-Number(match[2]));else{start=Number(match[1]);if(match[2])end=Math.min(end,Number(match[2]));}if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>end||start>=size){res.writeHead(416,{'Content-Range':`bytes */${size}`});return res.end();}status=206;}
         res.writeHead(status,{'Content-Type':'video/mp4','Accept-Ranges':'bytes','Content-Length':end-start+1,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(status===206?{'Content-Range':`bytes ${start}-${end}/${size}`}:{})});if(req.method==='HEAD')return res.end();const stream=fs.createReadStream(file,{start,end});stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());return stream.pipe(res);
