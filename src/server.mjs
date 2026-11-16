@@ -82,7 +82,7 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
         try{res.writeHead(302,{Location:tiktokFor(url.searchParams.get('environment')??'production').authorize(),'Cache-Control':'no-store'});return res.end();}catch(e){return send(400,{error:e.message});}
       }
       if(req.method==='GET' && url.pathname==='/tiktok/callback'){
-        try{if(url.searchParams.has('error'))throw Error('Авторизация TikTok отклонена');const state=url.searchParams.get('state')??'',environment=state.startsWith('sandbox_')?'sandbox':'production';await tiktoks[environment].exchange(url.searchParams.get('code'),state);res.writeHead(302,{Location:`/montage?tiktok=${environment}-connected`,'Cache-Control':'no-store'});return res.end();}
+        try{if(url.searchParams.has('error'))throw Error('Авторизация TikTok отклонена');const state=url.searchParams.get('state')??'',environment=state.startsWith('sandbox_')?'sandbox':'production';await tiktoks[environment].exchange(url.searchParams.get('code'),state);res.writeHead(302,{Location:`/tiktok/settings?tiktok=${environment}-connected`,'Cache-Control':'no-store'});return res.end();}
         catch(e){return send(400,`Ошибка TikTok: ${e.message}`,'text/plain; charset=utf-8');}
       }
       if(req.method==='GET' && url.pathname==='/api/tiktok/creator'){
@@ -267,7 +267,7 @@ export function createApp({dataRoot=path.join(root,'output'),allowSpawn=true,pub
         return send(200,{ok:true});
       }
       if(req.method==='GET' && url.pathname==='/fonts/komika-title-axis-rus-lat.otf')return send(200,fs.readFileSync(path.join(root,'web','fonts','komika-title-axis-rus-lat.otf')),'font/otf');
-      const assets={'/':'index.html','/studio':'index.html','/montage':'montage.html','/editor':'montage.html','/analysis':'analysis.html','/app.js':'app.js','/editor.js':'editor.js','/analysis.js':'analysis.js','/composition.js':'composition.js','/style.css':'style.css'};
+      const assets={'/':'index.html','/studio':'index.html','/montage':'montage.html','/editor':'montage.html','/analysis':'analysis.html','/tiktok/settings':'tiktok-settings.html','/tiktok-settings.js':'tiktok-settings.js','/app.js':'app.js','/editor.js':'editor.js','/analysis.js':'analysis.js','/composition.js':'composition.js','/style.css':'style.css'};
       if(req.method==='GET' && assets[url.pathname]) {
         const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8'};
         return send(200,fs.readFileSync(path.join(root,'web',assets[url.pathname])),types[path.extname(assets[url.pathname])]);

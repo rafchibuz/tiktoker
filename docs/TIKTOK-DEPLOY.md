@@ -16,7 +16,7 @@
 1. В приложении Tiktoker переключиться на **Sandbox**, создать Sandbox (можно клонировать Production Draft). Включить Login Kit для Web и Content Posting API → Direct Post, затем нажать **Apply changes**.
 2. В Sandbox settings → Target users добавить собственный TikTok-аккаунт и пройти вход. TikTok предупреждает, что появление аккаунта в списке может занять до часа.
 3. Добавить тот же Web Redirect URI `https://tiktok.ravshan.tv/tiktok/callback`. Для Content Posting API подтвердить `tiktok.ravshan.tv` в URL properties Sandbox.
-4. В студии выбрать **Sandbox**, ввести именно его Client Key/Secret, подключить добавленный аккаунт и испытать Direct Post. Sandbox ограничен приватной видимостью `SELF_ONLY`.
+4. Открыть защищённую страницу `https://tiktok.ravshan.tv/tiktok/settings`, выбрать **Sandbox**, ввести именно его Client Key/Secret и подключить добавленный аккаунт. После одобрения ролика испытать Direct Post из монтажа. Sandbox ограничен приватной видимостью `SELF_ONLY`.
 
 Ключи, токены и история публикаций Sandbox хранятся отдельно от Production. Публичная публикация в Sandbox недоступна. См. [Add a Sandbox](https://developers.tiktok.com/docs/en/add-a-sandbox).
 

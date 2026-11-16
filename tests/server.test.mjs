@@ -22,6 +22,8 @@ test('local panel reads real state, persists reviews and refuses unsafe requests
  const post=(url,data,headers={})=>fetch(base+url,{method:'POST',headers:{'Content-Type':'application/json','X-Tiktoker-Request':'1',...headers},body:JSON.stringify(data)});
  try {
   assert.equal((await fetch(base+'/')).status,200);
+  assert.equal((await fetch(base+'/tiktok/settings')).status,200);
+  assert.equal((await fetch(base+'/tiktok-settings.js')).status,200);
   const sandboxStatus=await(await fetch(base+'/api/tiktok/status?environment=sandbox')).json();assert.equal(sandboxStatus.environment,'sandbox');assert.equal(sandboxStatus.connected,false);
   assert.equal((await fetch(base+'/api/tiktok/status?environment=invalid')).status,400);
   const channels=await(await fetch(base+'/api/channels')).json();assert.equal(channels.channels[0].channel,'ravshann');assert.equal(channels.channels.find(c=>c.channel==='shadowkekw').new_count,1);
